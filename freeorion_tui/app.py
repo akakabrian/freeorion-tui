@@ -33,6 +33,15 @@ from .engine import (
     System,
     new_game,
 )
+from .screens import (
+    EmpireScreen,
+    GalaxyScreen,
+    HelpScreen,
+    LoadScreen,
+    ResearchQueueScreen,
+    SaveScreen,
+    TechTreeScreen,
+)
 
 
 # ----- galaxy → grid projection -----------------------------------
@@ -42,6 +51,23 @@ def galaxy_to_grid(x: float, y: float, w: int, h: int) -> tuple[int, int]:
     gx = int(round(x * (w - 1) / GALAXY_WIDTH))
     gy = int(round(y * (h - 1) / GALAXY_HEIGHT))
     return max(0, min(w - 1, gx)), max(0, min(h - 1, gy))
+
+
+def _heat_style(value: float, lo: float, hi: float) -> Style:
+    """Red→yellow→green ramp for overlay tinting. Capped [lo, hi]."""
+    span = max(1e-6, hi - lo)
+    t = max(0.0, min(1.0, (value - lo) / span))
+    if t < 0.5:
+        # red → yellow
+        r = 255
+        g = int(40 + t * 2 * 200)
+        b = 60
+    else:
+        # yellow → green
+        r = int(255 - (t - 0.5) * 2 * 180)
+        g = 240
+        b = 80
+    return Style.parse(f"bold rgb({r},{g},{b}) on rgb(4,6,14)")
 
 
 # ----- map view ----------------------------------------------------
@@ -64,12 +90,16 @@ class MapView(ScrollView):
             self.system_id = system_id
             super().__init__()
 
+    OVERLAYS = ("none", "owners", "population", "research")
+
     def __init__(self, game: Game) -> None:
         super().__init__()
         self.game = game
         self.grid_w = MAP_W
         self.grid_h = MAP_H
         self.virtual_size = Size(self.grid_w, self.grid_h)
+        # Overlay is a post-render tint on top of the base star map.
+        self.overlay_mode = "none"
         # Pre-compute positions and a sparse lookup from grid → system_id.
         self._positions: dict[int, tuple[int, int]] = {}
         self._grid_to_system: dict[tuple[int, int], int] = {}
@@ -234,6 +264,11 @@ class MapView(ScrollView):
                              fleets_here[0])
                     glyph = "►" if f.owner == self.game.player().id else "◄"
                     style = self._empire_highlight.get(f.owner, style)
+                # Data overlays — tint the star by a metric.
+                if self.overlay_mode != "none":
+                    ovr = self._overlay_style_for(s)
+                    if ovr is not None:
+                        style = ovr
             elif (x, grid_y) in lanes:
                 glyph = lanes[(x, grid_y)]
                 style = self._lane_style
@@ -252,6 +287,37 @@ class MapView(ScrollView):
         if visible < width:
             segments.append(Segment(" " * (width - visible)))
         return Strip(segments, width)
+
+    # --- overlay tinting --------------------------------------------
+    def _overlay_style_for(self, s: "System") -> Optional[Style]:
+        """Translate a data metric on system ``s`` into a heat-style.
+
+        Owners → empire's own bright-on-dark style (same as default owner
+        tint, but extended to every owned star even when the cursor/fleet
+        glyph would otherwise hide it). Population / research use a
+        red→yellow→green ramp."""
+        if self.overlay_mode == "owners":
+            owner = s.owner
+            if owner is None:
+                return Style.parse("rgb(30,35,60) on rgb(4,6,14)")
+            return self._empire_highlight.get(owner)
+        if self.overlay_mode == "population":
+            pop = sum(p.population for p in s.planets)
+            return _heat_style(pop, 0.0, 30.0)
+        if self.overlay_mode == "research":
+            # Aggregate research output potential on system's planets.
+            r = sum(max(p.research_output, p.max_population * 0.3)
+                    for p in s.planets if p.is_habitable())
+            return _heat_style(r, 0.0, 15.0)
+        return None
+
+    def cycle_overlay(self) -> str:
+        idx = self.OVERLAYS.index(self.overlay_mode)
+        self.overlay_mode = self.OVERLAYS[(idx + 1) % len(self.OVERLAYS)]
+        # Invalidate cached render state.
+        self._last_serial = -1
+        self.refresh()
+        return self.overlay_mode
 
     # --- cursor movement --------------------------------------------
     def move_cursor_to_nearest(self, dx: int, dy: int) -> None:
@@ -598,10 +664,18 @@ class FreeOrionApp(App):
         Binding("space", "end_turn", "End Turn", priority=True),
         Binding("t", "focus_techs", "Techs"),
         Binding("m", "focus_map", "Map"),
-        Binding("f", "build_fleet", "Build Fleet"),
-        Binding("o", "change_focus", "Focus"),
-        Binding("g", "go_fleet", "Move Fleet"),
+        Binding("f", "build_fleet", "Build"),
+        Binding("p", "change_focus", "Focus"),
+        Binding("o", "cycle_overlay", "Overlay"),
+        Binding("g", "go_fleet", "Move"),
+        Binding("c", "colonise", "Colonise"),
         Binding("question_mark", "help", "Help"),
+        Binding("G", "galaxy_screen", "Galaxy"),
+        Binding("T", "tech_tree", "TechTree"),
+        Binding("E", "empire_screen", "Empires"),
+        Binding("R", "research_queue", "Queue"),
+        Binding("S", "save_game", "Save"),
+        Binding("L", "load_game", "Load"),
         Binding("up",    "move_cursor(0,-1)", "↑", show=False, priority=True),
         Binding("down",  "move_cursor(0,1)",  "↓", show=False, priority=True),
         Binding("left",  "move_cursor(-1,0)", "←", show=False, priority=True),
@@ -809,6 +883,87 @@ class FreeOrionApp(App):
     def action_help(self) -> None:
         self.push_screen(HelpScreen())
 
+    def action_cycle_overlay(self) -> None:
+        mode = self.map_view.cycle_overlay()
+        label = {
+            "none": "[dim]no overlay[/]",
+            "owners": "[cyan]overlay:[/] empire control",
+            "population": "[cyan]overlay:[/] planet population",
+            "research": "[cyan]overlay:[/] research potential",
+        }.get(mode, mode)
+        self.flash_status(label)
+
+    def action_colonise(self) -> None:
+        """Plant a colony on the best unowned habitable planet at cursor."""
+        p = self.game.player()
+        sys_ = self.game.system(self.map_view.cursor_system)
+        # Check there's a player fleet at the system (rough colony-ship).
+        fleets = [f for f in self.game.fleets
+                  if f.system_id == sys_.id and f.owner == p.id]
+        if not fleets:
+            self.flash_status("[red]✗ no fleet at this system[/]")
+            return
+        targets = [pl for pl in sys_.planets
+                   if pl.owner is None and pl.is_habitable()
+                   and pl.max_population >= 3]
+        if not targets:
+            self.flash_status("[red]✗ no colonisable planets here[/]")
+            return
+        best = max(targets, key=lambda pl: pl.max_population)
+        best.owner = p.id
+        best.population = 1.0
+        best.focus = "industry"
+        self.game.bump()
+        self.fleet_panel.refresh_panel()
+        self.status_panel.refresh_panel()
+        self.flash_status(f"[green]✓ colonised {best.name}[/]")
+        self.log_msg(f"Colonised [bold]{best.name}[/] ({best.type})")
+
+    def action_galaxy_screen(self) -> None:
+        self.push_screen(GalaxyScreen(self.game))
+
+    def action_tech_tree(self) -> None:
+        self.push_screen(TechTreeScreen(self.game))
+
+    def action_empire_screen(self) -> None:
+        self.push_screen(EmpireScreen(self.game))
+
+    def action_research_queue(self) -> None:
+        # Use a callback to refresh side panels when the user closes.
+        def _after(_result=None) -> None:
+            self.queue_panel.refresh_panel()
+            self.tech_panel.refresh_panel()
+        self.push_screen(ResearchQueueScreen(self.game), _after)
+
+    def action_save_game(self) -> None:
+        self.push_screen(SaveScreen(self.game))
+
+    def action_load_game(self) -> None:
+        def _after(game) -> None:
+            if game is None:
+                return
+            self.game = game
+            # Rebuild widgets bound to the old Game.
+            self.map_view.game = game
+            self.map_view._rebuild_positions()
+            self.map_view.set_styles_for_empires()
+            self.map_view._last_serial = -1
+            p = game.player()
+            self.map_view.cursor_system = p.home_system_id
+            self.map_view.refresh()
+            self.status_panel.game = game
+            self.status_panel._last = None
+            self.tech_panel.game = game
+            self.queue_panel.game = game
+            self.queue_panel._last = None
+            self.fleet_panel.game = game
+            self.fleet_panel.system_id = p.home_system_id
+            self.fleet_panel._last = None
+            self._refresh_panels()
+            self.update_header()
+            self.log_msg(f"[cyan]✓ loaded save at turn {game.turn}[/]")
+        self.push_screen(LoadScreen(), _after)
+
     # --- messages from widgets --------------------------------------
     def on_map_view_system_selected(self, msg: MapView.SystemSelected) -> None:
         self.fleet_panel.set_system(msg.system_id)
@@ -837,43 +992,6 @@ class FreeOrionApp(App):
             self._flash_timer = None
             self.flash_bar.update(" ")
         self._flash_timer = self.set_timer(seconds, _clear)
-
-
-# ----- help screen -----------------------------------------------
-
-from textual.screen import ModalScreen
-
-
-class HelpScreen(ModalScreen):
-    BINDINGS = [Binding("escape,q,question_mark", "dismiss", "Close")]
-
-    def compose(self) -> ComposeResult:
-        help_text = """
-[bold cyan]FreeOrion — Terminal[/]
-
-[bold]Map mode[/]
-  ↑↓←→     Jump between stars in that direction
-  Space    End turn
-  m        Focus map  ·  t        Focus tech browser
-  f        Build Scout at cursor system
-  o        Cycle focus (research/industry/pop) on owned planets
-  g        Send idle fleet to cursor system
-  q        Quit  ·  ?    This help
-
-[bold]Tech mode[/]
-  ↑↓       Navigate  ·  ←→   Collapse / expand category
-  Enter    Queue tech for research (or expand category)
-
-[bold]Symbols[/]
-  ✦ ✧ ★ ☆ ✯ — stars (blue / white / yellow / orange / red)
-  ● = black hole · ✴ = neutron star
-  ► ◄ — your fleet / enemy fleet
-  ─ │ ╲ ╱ — starlanes
-"""
-        yield Static(Text.from_markup(help_text), id="help")
-
-    def action_dismiss(self) -> None:
-        self.app.pop_screen()
 
 
 # ----- run helper -------------------------------------------------

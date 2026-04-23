@@ -125,7 +125,7 @@ async def s_planet_focus_changes(app, pilot):
     planets = app.game.planets_of(p.id)
     assert planets, "player should own a planet at start"
     foci = [pl.focus for pl in planets]
-    await pilot.press("o")  # cycle focus
+    await pilot.press("p")  # cycle focus
     await pilot.pause()
     new_foci = [pl.focus for pl in planets]
     assert foci != new_foci, f"focus didn't change: {foci}"
@@ -205,6 +205,116 @@ async def s_help_opens_and_closes(app, pilot):
     await pilot.pause()
 
 
+async def s_overlay_cycles(app, pilot):
+    """`o` cycles the map overlay through none→owners→population→research→none."""
+    modes = []
+    for _ in range(5):
+        await pilot.press("o")
+        await pilot.pause()
+        modes.append(app.map_view.overlay_mode)
+    # We hit `o` 5 times starting from "none", so we should see a full cycle.
+    assert "owners" in modes, f"cycle missed owners: {modes}"
+    assert "population" in modes, f"cycle missed population: {modes}"
+    assert "research" in modes, f"cycle missed research: {modes}"
+    # After 4 presses we should be back to none.
+    assert modes[3] == "none", f"cycle didn't wrap: {modes}"
+
+
+async def s_galaxy_screen_opens(app, pilot):
+    await pilot.press("G")
+    await pilot.pause()
+    assert len(app.screen_stack) >= 2, "GalaxyScreen didn't open"
+    await pilot.press("escape")
+    await pilot.pause()
+
+
+async def s_tech_tree_screen_opens(app, pilot):
+    await pilot.press("T")
+    await pilot.pause()
+    assert len(app.screen_stack) >= 2
+    await pilot.press("escape")
+    await pilot.pause()
+
+
+async def s_empire_screen_opens(app, pilot):
+    await pilot.press("E")
+    await pilot.pause()
+    assert len(app.screen_stack) >= 2
+    await pilot.press("escape")
+    await pilot.pause()
+
+
+async def s_research_queue_editor(app, pilot):
+    p = app.game.player()
+    # Ensure queue has something.
+    if not p.research_queue:
+        avail = p.available_techs()
+        assert avail, "no available techs at start"
+        p.research_queue.append(avail[0].name)
+    await pilot.press("R")
+    await pilot.pause()
+    assert len(app.screen_stack) >= 2
+    # j/k should move the cursor (no crash).
+    await pilot.press("j")
+    await pilot.pause()
+    await pilot.press("escape")
+    await pilot.pause()
+
+
+async def s_save_and_load_roundtrip(app, pilot):
+    """Save the game, mutate it, load it back, verify turn matches."""
+    from freeorion_tui.screens import load_game, save_game
+    before_turn = app.game.turn
+    # Push player's RP to a distinctive value.
+    app.game.player().rp_pool = 123.4
+    path = save_game(app.game, "qa-roundtrip")
+    assert path.exists() and path.stat().st_size > 100, path
+    # Advance a few turns.
+    app.game.advance_turn()
+    app.game.advance_turn()
+    assert app.game.turn == before_turn + 2
+    # Load it back.
+    loaded = load_game("qa-roundtrip")
+    assert loaded is not None, "load returned None"
+    assert loaded.turn == before_turn
+    assert abs(loaded.player().rp_pool - 123.4) < 0.01
+    # Clean up.
+    path.unlink(missing_ok=True)
+
+
+async def s_colonise_adds_planet(app, pilot):
+    """Move cursor to a habitable uncolonised system reachable from home,
+    warp a fleet there, advance until it arrives, then press `c`."""
+    p = app.game.player()
+    # Find a neighbouring system with a colonisable planet.
+    home = app.game.system(p.home_system_id)
+    target = None
+    for nb_id in home.starlanes:
+        nb = app.game.system(nb_id)
+        if any(pl.owner is None and pl.is_habitable() and pl.max_population >= 3
+               for pl in nb.planets):
+            target = nb_id
+            break
+    if target is None:
+        # Galaxy too sparse this seed — skip softly.
+        return
+    # Teleport a player fleet there directly (bypass the turn count).
+    fleets = app.game.fleets_of(p.id)
+    assert fleets, "player needs a starting fleet"
+    fleets[0].system_id = target
+    fleets[0].dest_id = None
+    fleets[0].eta = 0
+    # Move cursor to that system and press `c`.
+    app.map_view.cursor_system = target
+    await pilot.pause()
+    owned0 = len(app.game.planets_of(p.id))
+    await pilot.press("c")
+    await pilot.pause()
+    assert len(app.game.planets_of(p.id)) == owned0 + 1, (
+        f"planet count {owned0} → {len(app.game.planets_of(p.id))}"
+    )
+
+
 # ------- harness ---------------------------------------------------
 
 SCENARIOS = [
@@ -220,6 +330,13 @@ SCENARIOS = [
     Scenario("render_produces_output", s_render_produces_output),
     Scenario("snapshot_no_app_context", s_snapshot_no_app_context),
     Scenario("help_opens_and_closes", s_help_opens_and_closes),
+    Scenario("overlay_cycles", s_overlay_cycles),
+    Scenario("galaxy_screen_opens", s_galaxy_screen_opens),
+    Scenario("tech_tree_screen_opens", s_tech_tree_screen_opens),
+    Scenario("empire_screen_opens", s_empire_screen_opens),
+    Scenario("research_queue_editor", s_research_queue_editor),
+    Scenario("save_and_load_roundtrip", s_save_and_load_roundtrip),
+    Scenario("colonise_adds_planet", s_colonise_adds_planet),
 ]
 
 

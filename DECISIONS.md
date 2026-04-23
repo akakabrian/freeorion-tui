@@ -53,3 +53,43 @@ Phase D — Optional sound (FreeOrion ships OGG music; WAV playback only
 if easy).
 
 Combat and diplomacy detail are explicitly deferred per the user brief.
+
+## Stage 5/6 benchmarks
+
+Baseline numbers after stages 1-4 landed green (python 3.12, 40-system
+galaxy seed=42):
+
+```
+advance_turn   :   0.05 ms/turn
+render_line    :  0.060 ms/line
+full viewport  :   2.35 ms/frame (40 rows)
+cursor_jump    :  0.048 ms/call
+```
+
+All four metrics sit well under the TUI "comfortable interaction" budget
+(~16 ms for 60 Hz). The star-map draw path already uses cached Style
+objects, serial-invalidated lane/fleet layers, and run-length segment
+packing — no further optimisation warranted. No brittle ctypes-pointer
+work here (no vendored binary to rebuild; content parsing is pure
+Python), so the Stage 6 hardening pass is minimal: focus-key changed
+from `o` (now overlay) to `p`, and overlay invalidates the serial cache
+so the next paint picks up new tints.
+
+## Stage 7 phases landed
+
+- Phase B (submenus/overlays): `GalaxyScreen`, `TechTreeScreen`,
+  `EmpireScreen`, `ResearchQueueScreen`, `HelpScreen` in `screens.py`;
+  new keys `G T E R ?`. Map overlay cycle on `o`: none → owners →
+  population → research, with a red→yellow→green heat ramp.
+- Phase C (agent REST API): full `aiohttp` server — `/state /galaxy
+  /techs /research /produce /move /focus /advance /events`. 10/10 API
+  scenarios green.
+- Phase E (polish): pickle-based save/load to
+  `~/.local/share/freeorion-tui/saves/` via `S` and `L` modals.
+  Colonise action on `c` for the cursor system (requires a player fleet
+  present + habitable unowned planet).
+
+Deferred phases: D (sound — no vendor WAVs in FreeOrion tree that
+justify the wire-up), F (animation — rendering is already 2 ms/frame, so
+a 2 Hz refresh is a mid-game enhancement, not required for MVP), G (LLM
+advisor — scope creep for this session).
