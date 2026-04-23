@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
-from pathlib import Path
 from typing import Optional
 
 from rich.segment import Segment
@@ -27,7 +25,6 @@ from .engine import (
     GALAXY_WIDTH,
     MAP_H,
     MAP_W,
-    Empire,
     Fleet,
     Game,
     System,
@@ -387,10 +384,11 @@ class StatusPanel(Static):
         if not self.is_mounted:
             return
         p = self.game.player()
-        ip_name = p.in_progress.tech_name if p.in_progress else None
+        ip = p.in_progress
+        ip_name = ip.tech_name if ip is not None else None
         ip_pct = (
-            int(100 * p.in_progress.points / content.TECHS[ip_name].cost)
-            if p.in_progress and ip_name in content.TECHS else 0
+            int(100 * ip.points / content.TECHS[ip_name].cost)
+            if ip is not None and ip_name in content.TECHS else 0
         )
         sig = (self.game.turn, p.id, round(p.rp_pool, 1), round(p.pp_pool, 1),
                ip_name, ip_pct, len(p.researched), len(p.research_queue),
@@ -407,7 +405,7 @@ class StatusPanel(Static):
         t.append(f"Planets: {len(self.game.planets_of(p.id))}  "
                  f"Fleets: {len(self.game.fleets_of(p.id))}\n")
         t.append(f"Researched: {len(p.researched)}/{len(content.TECHS)}\n\n")
-        if ip_name:
+        if ip is not None and ip_name is not None:
             tech = content.TECHS[ip_name]
             t.append("Researching:\n", style="bold")
             t.append(f"  {tech.short_name}\n")
@@ -421,7 +419,7 @@ class StatusPanel(Static):
             t.append(f"{ip_pct}%\n")
             # Progress bar.
             bar_w = 20
-            filled = int(bar_w * p.in_progress.points / tech.cost)
+            filled = int(bar_w * ip.points / tech.cost)
             t.append("  " + "█" * filled + "░" * (bar_w - filled) + "\n",
                      style=cat_style)
         else:

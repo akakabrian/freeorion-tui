@@ -1,6 +1,6 @@
 VENDOR := engine/freeorion
 
-.PHONY: all bootstrap venv run test clean
+.PHONY: all bootstrap venv run test test-api perf playtest clean
 
 all: bootstrap venv
 
@@ -24,6 +24,15 @@ test: venv
 
 test-only: venv
 	.venv/bin/python -m tests.qa $(PAT)
+
+test-api: venv
+	.venv/bin/python -m tests.api_qa
+
+perf: venv
+	.venv/bin/python -m tests.perf
+
+playtest: venv
+	.venv/bin/python -m tests.playtest
 
 clean:
 	rm -rf .venv freeorion_tui.egg-info __pycache__ */__pycache__

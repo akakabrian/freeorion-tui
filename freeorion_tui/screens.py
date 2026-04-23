@@ -10,18 +10,19 @@ don't fight the App's priority arrow / enter bindings from the map layer.
 from __future__ import annotations
 
 import pickle
+import time
 from pathlib import Path
 from typing import Optional
 
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical
+from textual.containers import Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Input, Static
 
 from . import content
-from .engine import Empire, Game
+from .engine import Game
 
 
 # Save data lives under the user's local state dir so we don't litter CWD.
@@ -533,7 +534,6 @@ class LoadScreen(ModalScreen):
             cursor = "▶" if i == self.cursor_idx else " "
             size = path.stat().st_size
             ago = path.stat().st_mtime
-            import time
             rel = time.strftime("%Y-%m-%d %H:%M",
                                 time.localtime(ago))
             line = f"{cursor} {path.stem:<30} {size:>8} B   {rel}\n"

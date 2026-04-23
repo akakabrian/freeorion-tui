@@ -11,11 +11,8 @@ from __future__ import annotations
 import asyncio
 import json
 import socket
-import sys
 import traceback
 import urllib.request
-from pathlib import Path
-from typing import Any
 
 from freeorion_tui.agent_api import start_server
 from freeorion_tui.app import FreeOrionApp

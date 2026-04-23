@@ -24,7 +24,7 @@ import random
 from dataclasses import dataclass, field
 from typing import Optional
 
-from .content import CATEGORIES, STAR_NAMES, TECHS, Tech, techs_by_category
+from .content import STAR_NAMES, TECHS, Tech, techs_by_category
 
 # --- constants ------------------------------------------------------
 
