@@ -1,0 +1,55 @@
+# FreeOrion TUI — design decisions
+
+## Engine integration approach
+
+**Chosen:** Standalone pure-Python simulation that mirrors FreeOrion's data
+model, seeded with real FreeOrion content (tech definitions, star name
+lists, empire colours) extracted from the vendored repo's data files.
+
+**Rejected:** Compiling FreeOrion's C++ engine and wrapping it via
+Boost.Python. The engine is ~340 MB of source with heavy dependencies
+(Boost 1.70+, Python 3.8+ boost-python, OGRE/GG UI toolkit, libvorbis,
+OpenAL). A full build on taro exceeds the scope of a single session, and
+much of what we would compile is UI/network glue we don't need for a TUI.
+
+**Rejected:** Driving the FreeOrion headless server via its client
+protocol. `freeoriond` needs the engine compiled first (same blocker).
+The protocol is also undocumented as a public API — Boost.Serialization
+over TCP, which ties the client to the server's C++ object graph.
+
+**Rationale:** FreeOrion already ships `.focs.py` files that define every
+tech, building, species, ship hull, and ship part in a declarative Python
+dialect. Parsing those files gives us the full FreeOrion content tree
+(194 techs across 8 categories) without running the engine. The
+simulation layer (turn advance, research points, fleet movement,
+production queue) is implementable in ~300 lines of idiomatic Python.
+This is faithful to the FreeOrion player experience — same techs, same
+category taxonomy, same galaxy generation feel — while being tractable.
+
+**Future upgrade path:** If someone later compiles the engine, the
+binding shim in `freeorion_tui/engine.py` can be swapped to delegate to
+the real `freeorion` module; the TUI layer shouldn't need to change.
+
+## Data layout
+
+- `vendor/freeorion/` — full vendored repo (gitignored, fetched via
+  `make bootstrap`).
+- `freeorion_tui/content.py` — parses `.focs.py` tech files at
+  import-time, producing a `TECHS` dict.
+- `freeorion_tui/engine.py` — the in-memory galaxy + empire + turn
+  engine. Exposes a `Game` class with `advance_turn()`, `research()`,
+  `enqueue_production()`, `move_fleet()`.
+
+## Scope gates (per skill Stage 6)
+
+Phase A — Star map + tech tree + production queue + end-turn. Required
+for MVP.
+
+Phase B — Graphs + overlays + diplomacy stub (no combat yet).
+
+Phase C — Agent REST API.
+
+Phase D — Optional sound (FreeOrion ships OGG music; WAV playback only
+if easy).
+
+Combat and diplomacy detail are explicitly deferred per the user brief.

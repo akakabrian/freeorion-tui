@@ -1,0 +1,19 @@
+[project]
+name = "freeorion-tui"
+version = "0.1.0"
+description = "Terminal-native FreeOrion-style 4X space strategy"
+requires-python = ">=3.10"
+dependencies = [
+    "textual>=0.80,<10",
+    "aiohttp>=3.9",
+]
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["freeorion_tui"]
+
+[tool.setuptools.package-data]
+freeorion_tui = ["tui.tcss"]

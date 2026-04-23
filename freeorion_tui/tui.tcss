@@ -1,0 +1,54 @@
+Screen {
+    background: #05060c;
+}
+
+#body {
+    height: 1fr;
+}
+
+#map-col {
+    width: 3fr;
+}
+
+#side {
+    width: 40;
+    min-width: 32;
+}
+
+MapView {
+    border: round #2b3250;
+    background: #04060e;
+    border-title-color: #b8c4ff;
+    border-title-style: bold;
+    height: 1fr;
+}
+
+#flash-bar {
+    height: 1;
+    background: #0b0f20;
+    color: #b8c4ff;
+    padding: 0 1;
+}
+
+#log {
+    border: round #1d2438;
+    border-title-color: #7b88b8;
+    height: 10;
+    min-height: 6;
+}
+
+StatusPanel, TechPanel, QueuePanel, FleetPanel {
+    border: round #23294a;
+    border-title-color: #7b88b8;
+    border-title-style: bold;
+    padding: 0 1;
+}
+
+StatusPanel { height: auto; }
+TechPanel { height: 1fr; }
+QueuePanel { height: auto; }
+FleetPanel { height: auto; }
+
+Footer {
+    background: #0a0f24;
+}
